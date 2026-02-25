@@ -1,27 +1,33 @@
-import axios from "axios";
-import { Redis } from "@upstash/redis";
+const axios = require("axios");
+const { Redis } = require("@upstash/redis");
 
 const TOKEN_URL = "https://cloud.lightspeedapp.com/auth/oauth/token";
 const API_BASE = "https://api.lightspeedapp.com";
-const ACCOUNT_ID = process.env.LIGHTSPEED_ACCOUNT_ID!;
+const ACCOUNT_ID = process.env.LIGHTSPEED_ACCOUNT_ID;
+
+const TOKEN_KEY = "lightspeed_tokens_walmart";
 
 const redis = new Redis({
-  url: process.env.KV_REST_API_URL!,
-  token: process.env.KV_REST_API_TOKEN!,
+  url: process.env.KV_REST_API_URL,
+  token: process.env.KV_REST_API_TOKEN,
 });
 
-let accessToken: string | null = null;
-let refreshToken: string | null = null;
+let accessToken = null;
+let refreshToken = null;
 
-export async function exchangeCodeForToken(code: string) {
+/* =========================
+   OAUTH
+========================= */
+
+async function exchangeCodeForToken(code) {
   const res = await axios.post(
     TOKEN_URL,
     new URLSearchParams({
       grant_type: "authorization_code",
       code,
-      client_id: process.env.LIGHTSPEED_CLIENT_ID!,
-      client_secret: process.env.LIGHTSPEED_CLIENT_SECRET!,
-      redirect_uri: process.env.LIGHTSPEED_REDIRECT_URI!,
+      client_id: process.env.LIGHTSPEED_CLIENT_ID,
+      client_secret: process.env.LIGHTSPEED_CLIENT_SECRET,
+      redirect_uri: process.env.LIGHTSPEED_REDIRECT_URI,
     }).toString(),
     { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
   );
@@ -30,15 +36,15 @@ export async function exchangeCodeForToken(code: string) {
   refreshToken = res.data.refresh_token;
 
   await redis.set(
-    "lightspeed_tokens_walmart",
+    TOKEN_KEY,
     JSON.stringify({ accessToken, refreshToken })
   );
 
   return accessToken;
 }
 
-export async function loadTokens() {
-  const saved = await redis.get("lightspeed_tokens_walmart");
+async function loadTokens() {
+  const saved = await redis.get(TOKEN_KEY);
   if (!saved) return false;
 
   const tokens =
@@ -50,7 +56,7 @@ export async function loadTokens() {
   return true;
 }
 
-export async function refreshAccessToken() {
+async function refreshAccessToken() {
   if (!refreshToken) {
     const loaded = await loadTokens();
     if (!loaded) throw new Error("No refresh token stored");
@@ -60,9 +66,9 @@ export async function refreshAccessToken() {
     TOKEN_URL,
     new URLSearchParams({
       grant_type: "refresh_token",
-      refresh_token: refreshToken!,
-      client_id: process.env.LIGHTSPEED_CLIENT_ID!,
-      client_secret: process.env.LIGHTSPEED_CLIENT_SECRET!,
+      refresh_token: refreshToken,
+      client_id: process.env.LIGHTSPEED_CLIENT_ID,
+      client_secret: process.env.LIGHTSPEED_CLIENT_SECRET,
     }).toString(),
     { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
   );
@@ -71,14 +77,14 @@ export async function refreshAccessToken() {
   refreshToken = res.data.refresh_token || refreshToken;
 
   await redis.set(
-    "lightspeed_tokens_walmart",
+    TOKEN_KEY,
     JSON.stringify({ accessToken, refreshToken })
   );
 
   return accessToken;
 }
 
-export async function hasValidToken() {
+async function hasValidToken() {
   if (accessToken) return true;
 
   const loaded = await loadTokens();
@@ -92,16 +98,32 @@ function authHeader() {
   return { Authorization: `Bearer ${accessToken}` };
 }
 
-export async function testLightspeedConnection() {
+/* =========================
+   TEST CONNECTION
+========================= */
+
+async function testLightspeedConnection() {
   if (!(await hasValidToken())) {
-  try {
-    await refreshAccessToken();
-  } catch (err) {
-    throw new Error("Lightspeed authentication required.");
+    try {
+      await refreshAccessToken();
+    } catch (err) {
+      throw new Error("Lightspeed authentication required.");
+    }
   }
+
+  const res = await axios.get(
+    `${API_BASE}/API/Account/${ACCOUNT_ID}.json`,
+    { headers: authHeader() }
+  );
+
+  return res.data;
 }
 
-export async function getItems(limit = 50) {
+/* =========================
+   FETCH PRODUCTS
+========================= */
+
+async function getItems(limit = 50) {
   if (!(await hasValidToken())) {
     await refreshAccessToken();
   }
@@ -112,18 +134,23 @@ export async function getItems(limit = 50) {
       headers: authHeader(),
       params: {
         load_relations: ["ItemShops"],
-        limit
-      }
+        limit,
+      },
     }
   );
 
   return res.data.Item || [];
 }
 
-  const res = await axios.get(
-    `${API_BASE}/API/Account/${ACCOUNT_ID}.json`,
-    { headers: authHeader() }
-  );
+/* =========================
+   EXPORTS
+========================= */
 
-  return res.data;
-}
+module.exports = {
+  exchangeCodeForToken,
+  loadTokens,
+  refreshAccessToken,
+  hasValidToken,
+  testLightspeedConnection,
+  getItems,
+};
