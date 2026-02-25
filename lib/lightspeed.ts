@@ -144,47 +144,6 @@ async function getItems(offset = 0, limit = 50) {
 }
 
 /* =========================
-   FETCH WALMART TAGGED ITEMS
-========================= */
-
-async function getWalmartTaggedItems(limitPerPage = 100) {
-  await ensureValidToken();
-
-  let nextUrl =
-    `${API_BASE}/Account/${ACCOUNT_ID}/Item.json` +
-    `?load_relations=["Tags"]&limit=${limitPerPage}`;
-
-  let walmartItems = [];
-
-  while (nextUrl) {
-    const res = await axios.get(nextUrl, {
-      headers: authHeader(),
-    });
-
-    const data = res.data;
-    const items = data.Item || [];
-    const normalized = Array.isArray(items) ? items : [items];
-
-    for (const item of normalized) {
-      if (!item.Tags || !item.Tags.tag) continue;
-
-      const tags = item.Tags.tag;
-
-      if (
-        (Array.isArray(tags) && tags.includes("walmart")) ||
-        tags === "walmart"
-      ) {
-        walmartItems.push(item);
-      }
-    }
-
-    nextUrl = data["@attributes"]?.next || null;
-  }
-
-  return walmartItems;
-}
-
-/* =========================
    SYNC WALMART PRODUCTS
 ========================= */
 
@@ -193,7 +152,7 @@ async function syncWalmartProducts(limitPerPage = 100) {
 
   let nextUrl =
     `${API_BASE}/Account/${ACCOUNT_ID}/Item.json` +
-    `?load_relations=["Tags"]&limit=${limitPerPage}`;
+    `?load_relations=["Tags","ItemShops","Prices"]&limit=${limitPerPage}`;
 
   let walmartItems = [];
   let pageCount = 0;
@@ -214,12 +173,43 @@ async function syncWalmartProducts(limitPerPage = 100) {
 
       const tags = item.Tags.tag;
 
-      if (
+      const hasWalmartTag =
         (Array.isArray(tags) && tags.includes("walmart")) ||
-        tags === "walmart"
-      ) {
-        walmartItems.push(item);
+        tags === "walmart";
+
+      if (!hasWalmartTag) continue;
+
+      // ✅ Extract Shopify price (useTypeID 10)
+      const shopifyPrice =
+        item.Prices?.ItemPrice?.find(
+          (p) => p.useTypeID === "10"
+        )?.amount || null;
+
+      // ✅ Extract inventory from shopID 3
+      let inventory = 0;
+
+      if (item.ItemShops?.ItemShop) {
+        const shops = Array.isArray(item.ItemShops.ItemShop)
+          ? item.ItemShops.ItemShop
+          : [item.ItemShops.ItemShop];
+
+        const primoShop = shops.find(
+          (s) => s.shopID === "3"
+        );
+
+        inventory = primoShop?.qoh || 0;
       }
+
+      // ✅ Store CLEAN optimized object
+      walmartItems.push({
+        itemID: item.itemID,
+        sku: item.systemSku,
+        title: item.description,
+        upc: item.upc,
+        price: shopifyPrice,
+        quantity: inventory,
+        categoryID: item.categoryID,
+      });
     }
 
     nextUrl = data["@attributes"]?.next || null;
@@ -228,7 +218,6 @@ async function syncWalmartProducts(limitPerPage = 100) {
 
   console.log("Sync complete. Found:", walmartItems.length);
 
-  // 🔥 STORE IN REDIS CACHE
   await redis.set(
     "walmart_products_cache",
     JSON.stringify(walmartItems)
@@ -248,6 +237,5 @@ module.exports = {
   exchangeCodeForToken,
   testLightspeedConnection,
   getItems,
-  getWalmartTaggedItems,
   syncWalmartProducts
 };
