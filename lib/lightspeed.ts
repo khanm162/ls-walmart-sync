@@ -158,27 +158,49 @@ async function getWalmartTaggedItems(offset = 0, limit = 100) {
     await refreshAccessToken();
   }
 
-  const res = await axios.get(
-    `${API_BASE}/API/Account/${ACCOUNT_ID}/Item.json`,
+  // STEP 1: Get TagItem mapping
+  const tagRes = await axios.get(
+    `${API_BASE}/API/Account/${ACCOUNT_ID}/TagItem.json`,
     {
       headers: authHeader(),
       params: {
-        tagID: WALMART_TAG_ID,   // ← tag filter
+        tagID: WALMART_TAG_ID,
         offset,
         limit
       }
     }
   );
 
-  if (!res.data || !res.data.Item) {
+  if (!tagRes.data || !tagRes.data.TagItem) {
     return [];
   }
 
-  const items = Array.isArray(res.data.Item)
-    ? res.data.Item
-    : [res.data.Item];
+  const tagItems = Array.isArray(tagRes.data.TagItem)
+    ? tagRes.data.TagItem
+    : [tagRes.data.TagItem];
 
-  return items;
+  const itemIDs = tagItems.map(t => t.itemID);
+
+  if (itemIDs.length === 0) return [];
+
+  // STEP 2: Fetch actual items
+  const itemRes = await axios.get(
+    `${API_BASE}/API/Account/${ACCOUNT_ID}/Item.json`,
+    {
+      headers: authHeader(),
+      params: {
+        itemID: itemIDs.join(",")
+      }
+    }
+  );
+
+  if (!itemRes.data || !itemRes.data.Item) {
+    return [];
+  }
+
+  return Array.isArray(itemRes.data.Item)
+    ? itemRes.data.Item
+    : [itemRes.data.Item];
 }
 
 /* =========================
