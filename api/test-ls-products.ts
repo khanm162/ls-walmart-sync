@@ -1,4 +1,4 @@
-const type { VercelRequest, VercelResponse } from "@vercel/node";
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 const { getItems } from "../lib/lightspeed";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
