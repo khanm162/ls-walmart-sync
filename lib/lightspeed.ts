@@ -2,11 +2,10 @@ const axios = require("axios");
 const { Redis } = require("@upstash/redis");
 
 const TOKEN_URL = "https://cloud.lightspeedapp.com/auth/oauth/token";
-const API_BASE = "https://api.lightspeedapp.com";
+const API_BASE = "https://api.lightspeedapp.com/API/V3";
 const ACCOUNT_ID = process.env.LIGHTSPEED_ACCOUNT_ID;
 
 const TOKEN_KEY = "lightspeed_tokens_walmart";
-const WALMART_TAG_ID = 1335; // ← your Lightspeed tag ID
 
 const redis = new Redis({
   url: process.env.KV_REST_API_URL,
@@ -17,8 +16,28 @@ let accessToken = null;
 let refreshToken = null;
 
 /* =========================
-   OAUTH
+   TOKEN MANAGEMENT
 ========================= */
+
+async function loadTokens() {
+  const saved = await redis.get(TOKEN_KEY);
+  if (!saved) return false;
+
+  const tokens =
+    typeof saved === "string" ? JSON.parse(saved) : saved;
+
+  accessToken = tokens.accessToken;
+  refreshToken = tokens.refreshToken;
+
+  return true;
+}
+
+async function saveTokens() {
+  await redis.set(
+    TOKEN_KEY,
+    JSON.stringify({ accessToken, refreshToken })
+  );
+}
 
 async function exchangeCodeForToken(code) {
   const res = await axios.post(
@@ -36,25 +55,9 @@ async function exchangeCodeForToken(code) {
   accessToken = res.data.access_token;
   refreshToken = res.data.refresh_token;
 
-  await redis.set(
-    TOKEN_KEY,
-    JSON.stringify({ accessToken, refreshToken })
-  );
+  await saveTokens();
 
   return accessToken;
-}
-
-async function loadTokens() {
-  const saved = await redis.get(TOKEN_KEY);
-  if (!saved) return false;
-
-  const tokens =
-    typeof saved === "string" ? JSON.parse(saved) : saved;
-
-  accessToken = tokens.accessToken;
-  refreshToken = tokens.refreshToken;
-
-  return true;
 }
 
 async function refreshAccessToken() {
@@ -77,21 +80,25 @@ async function refreshAccessToken() {
   accessToken = res.data.access_token;
   refreshToken = res.data.refresh_token || refreshToken;
 
-  await redis.set(
-    TOKEN_KEY,
-    JSON.stringify({ accessToken, refreshToken })
-  );
+  await saveTokens();
 
   return accessToken;
 }
 
-async function hasValidToken() {
-  if (accessToken) return true;
+async function ensureValidToken() {
+  if (!accessToken) {
+    const loaded = await loadTokens();
+    if (!loaded) throw new Error("Lightspeed not authenticated");
+  }
 
-  const loaded = await loadTokens();
-  if (loaded) return true;
-
-  return false;
+  try {
+    await axios.get(
+      `${API_BASE}/Account/${ACCOUNT_ID}.json`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+  } catch (err) {
+    await refreshAccessToken();
+  }
 }
 
 function authHeader() {
@@ -104,16 +111,10 @@ function authHeader() {
 ========================= */
 
 async function testLightspeedConnection() {
-  if (!(await hasValidToken())) {
-    try {
-      await refreshAccessToken();
-    } catch (err) {
-      throw new Error("Lightspeed authentication required.");
-    }
-  }
+  await ensureValidToken();
 
   const res = await axios.get(
-    `${API_BASE}/API/Account/${ACCOUNT_ID}.json`,
+    `${API_BASE}/Account/${ACCOUNT_ID}.json`,
     { headers: authHeader() }
   );
 
@@ -121,28 +122,21 @@ async function testLightspeedConnection() {
 }
 
 /* =========================
-   FETCH ALL ITEMS (GENERIC)
+   FETCH ALL ITEMS
 ========================= */
 
 async function getItems(offset = 0, limit = 50) {
-  if (!(await hasValidToken())) {
-    await refreshAccessToken();
-  }
+  await ensureValidToken();
 
   const res = await axios.get(
-    `${API_BASE}/API/Account/${ACCOUNT_ID}/Item.json`,
+    `${API_BASE}/Account/${ACCOUNT_ID}/Item.json`,
     {
       headers: authHeader(),
-      params: {
-        offset,
-        limit
-      }
+      params: { offset, limit }
     }
   );
 
-  if (!res.data || !res.data.Item) {
-    return [];
-  }
+  if (!res.data || !res.data.Item) return [];
 
   return Array.isArray(res.data.Item)
     ? res.data.Item
@@ -154,11 +148,11 @@ async function getItems(offset = 0, limit = 50) {
 ========================= */
 
 async function getWalmartTaggedItems(limitPerPage = 100) {
-  if (!(await hasValidToken())) {
-    await refreshAccessToken();
-  }
+  await ensureValidToken();
 
-  let nextUrl = `${API_BASE}/API/V3/Account/${ACCOUNT_ID}/Item.json?load_relations=["Tags"]&limit=${limitPerPage}`;
+  let nextUrl =
+    `${API_BASE}/Account/${ACCOUNT_ID}/Item.json` +
+    `?load_relations=["Tags"]&limit=${limitPerPage}`;
 
   let walmartItems = [];
 
@@ -169,22 +163,18 @@ async function getWalmartTaggedItems(limitPerPage = 100) {
 
     const data = res.data;
     const items = data.Item || [];
+    const normalized = Array.isArray(items) ? items : [items];
 
-    const normalizedItems = Array.isArray(items) ? items : [items];
-
-    for (const item of normalizedItems) {
+    for (const item of normalized) {
       if (!item.Tags || !item.Tags.tag) continue;
 
       const tags = item.Tags.tag;
 
-      if (Array.isArray(tags)) {
-        if (tags.includes("walmart")) {
-          walmartItems.push(item);
-        }
-      } else {
-        if (tags === "walmart") {
-          walmartItems.push(item);
-        }
+      if (
+        (Array.isArray(tags) && tags.includes("walmart")) ||
+        tags === "walmart"
+      ) {
+        walmartItems.push(item);
       }
     }
 
@@ -200,9 +190,6 @@ async function getWalmartTaggedItems(limitPerPage = 100) {
 
 module.exports = {
   exchangeCodeForToken,
-  loadTokens,
-  refreshAccessToken,
-  hasValidToken,
   testLightspeedConnection,
   getItems,
   getWalmartTaggedItems

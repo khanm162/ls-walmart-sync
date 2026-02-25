@@ -14,7 +14,7 @@ module.exports = async function handler(req, res) {
 
     res.status(500).json({
       error: err.message,
-      details: err.response?.data,
+      details: err.response?.data
     });
   }
 };
