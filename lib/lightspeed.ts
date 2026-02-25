@@ -133,13 +133,19 @@ async function getItems(limit = 50) {
     {
       headers: authHeader(),
       params: {
-        load_relations: ["ItemShops"],
-        limit,
-      },
+        offset: 0,
+        limit: limit
+      }
     }
   );
 
-  return res.data.Item || [];
+  if (!res.data || !res.data.Item) {
+    return [];
+  }
+
+  return Array.isArray(res.data.Item)
+    ? res.data.Item
+    : [res.data.Item];
 }
 
 /* =========================
