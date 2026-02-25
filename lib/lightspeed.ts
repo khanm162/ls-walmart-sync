@@ -30,7 +30,7 @@ export async function exchangeCodeForToken(code: string) {
   refreshToken = res.data.refresh_token;
 
   await redis.set(
-    "lightspeed_tokens",
+    "lightspeed_tokens_walmart",
     JSON.stringify({ accessToken, refreshToken })
   );
 
@@ -38,7 +38,7 @@ export async function exchangeCodeForToken(code: string) {
 }
 
 export async function loadTokens() {
-  const saved = await redis.get("lightspeed_tokens");
+  const saved = await redis.get("lightspeed_tokens_walmart");
   if (!saved) return false;
 
   const tokens =
@@ -71,7 +71,7 @@ export async function refreshAccessToken() {
   refreshToken = res.data.refresh_token || refreshToken;
 
   await redis.set(
-    "lightspeed_tokens",
+    "lightspeed_tokens_walmart",
     JSON.stringify({ accessToken, refreshToken })
   );
 
@@ -94,8 +94,12 @@ function authHeader() {
 
 export async function testLightspeedConnection() {
   if (!(await hasValidToken())) {
+  try {
     await refreshAccessToken();
+  } catch (err) {
+    throw new Error("Lightspeed authentication required.");
   }
+}
 
   const res = await axios.get(
     `${API_BASE}/API/Account/${ACCOUNT_ID}.json`,
