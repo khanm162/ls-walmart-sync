@@ -6,6 +6,7 @@ const API_BASE = "https://api.lightspeedapp.com";
 const ACCOUNT_ID = process.env.LIGHTSPEED_ACCOUNT_ID;
 
 const TOKEN_KEY = "lightspeed_tokens_walmart";
+const WALMART_TAG_ID = 1335; // ← your Lightspeed tag ID
 
 const redis = new Redis({
   url: process.env.KV_REST_API_URL,
@@ -120,10 +121,10 @@ async function testLightspeedConnection() {
 }
 
 /* =========================
-   FETCH PRODUCTS
+   FETCH ALL ITEMS (GENERIC)
 ========================= */
 
-async function getItems(limit = 50) {
+async function getItems(offset = 0, limit = 50) {
   if (!(await hasValidToken())) {
     await refreshAccessToken();
   }
@@ -133,8 +134,8 @@ async function getItems(limit = 50) {
     {
       headers: authHeader(),
       params: {
-        offset: 0,
-        limit: limit
+        offset,
+        limit
       }
     }
   );
@@ -149,6 +150,38 @@ async function getItems(limit = 50) {
 }
 
 /* =========================
+   FETCH WALMART TAGGED ITEMS
+========================= */
+
+async function getWalmartTaggedItems(offset = 0, limit = 100) {
+  if (!(await hasValidToken())) {
+    await refreshAccessToken();
+  }
+
+  const res = await axios.get(
+    `${API_BASE}/API/Account/${ACCOUNT_ID}/Item.json`,
+    {
+      headers: authHeader(),
+      params: {
+        tagID: WALMART_TAG_ID,   // ← tag filter
+        offset,
+        limit
+      }
+    }
+  );
+
+  if (!res.data || !res.data.Item) {
+    return [];
+  }
+
+  const items = Array.isArray(res.data.Item)
+    ? res.data.Item
+    : [res.data.Item];
+
+  return items;
+}
+
+/* =========================
    EXPORTS
 ========================= */
 
@@ -159,4 +192,5 @@ module.exports = {
   hasValidToken,
   testLightspeedConnection,
   getItems,
+  getWalmartTaggedItems
 };

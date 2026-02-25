@@ -1,4 +1,4 @@
-const { getItems } = require("../lib/lightspeed");
+const { getWalmartTaggedItems } = require("../lib/lightspeed");
 
 module.exports = async function handler(req, res) {
   try {
