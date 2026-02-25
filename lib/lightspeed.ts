@@ -152,7 +152,7 @@ async function syncWalmartProducts(limitPerPage = 100) {
 
   let nextUrl =
     `${API_BASE}/Account/${ACCOUNT_ID}/Item.json` +
-    `?load_relations=["Tags","ItemShops","Prices"]&limit=${limitPerPage}`;
+    `?load_relations=["Tags","ItemShops"]&limit=${limitPerPage}`;
 
   let walmartItems = [];
   let pageCount = 0;
