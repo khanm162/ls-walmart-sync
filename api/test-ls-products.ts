@@ -1,15 +1,16 @@
-import type { VercelRequest, VercelResponse } from "@vercel/node";
-const { getItems } from "../lib/lightspeed";
+const { getItems } = require("../lib/lightspeed");
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+module.exports = async function handler(req, res) {
   try {
     const items = await getItems(10);
-    res.json({
+
+    res.status(200).json({
       success: true,
       count: items.length,
-      sample: items.slice(0, 3)
+      sample: items.slice(0, 3),
     });
-  } catch (err: any) {
+  } catch (err) {
+    console.error("LS PRODUCT ERROR:", err);
     res.status(500).json({ error: err.message });
   }
-}
+};
