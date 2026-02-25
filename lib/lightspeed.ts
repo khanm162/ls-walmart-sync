@@ -153,54 +153,45 @@ async function getItems(offset = 0, limit = 50) {
    FETCH WALMART TAGGED ITEMS
 ========================= */
 
-async function getWalmartTaggedItems(offset = 0, limit = 100) {
+async function getWalmartTaggedItems(limitPerPage = 100) {
   if (!(await hasValidToken())) {
     await refreshAccessToken();
   }
 
-  // STEP 1: Get TagItem mapping
-  const tagRes = await axios.get(
-    `${API_BASE}/API/Account/${ACCOUNT_ID}/TagItem.json`,
-    {
+  let nextUrl = `${API_BASE}/API/V3/Account/${ACCOUNT_ID}/Item.json?load_relations=["Tags"]&limit=${limitPerPage}`;
+
+  let walmartItems = [];
+
+  while (nextUrl) {
+    const res = await axios.get(nextUrl, {
       headers: authHeader(),
-      params: {
-        tagID: WALMART_TAG_ID,
-        offset,
-        limit
+    });
+
+    const data = res.data;
+    const items = data.Item || [];
+
+    const normalizedItems = Array.isArray(items) ? items : [items];
+
+    for (const item of normalizedItems) {
+      if (!item.Tags || !item.Tags.tag) continue;
+
+      const tags = item.Tags.tag;
+
+      if (Array.isArray(tags)) {
+        if (tags.includes("walmart")) {
+          walmartItems.push(item);
+        }
+      } else {
+        if (tags === "walmart") {
+          walmartItems.push(item);
+        }
       }
     }
-  );
 
-  if (!tagRes.data || !tagRes.data.TagItem) {
-    return [];
+    nextUrl = data["@attributes"]?.next || null;
   }
 
-  const tagItems = Array.isArray(tagRes.data.TagItem)
-    ? tagRes.data.TagItem
-    : [tagRes.data.TagItem];
-
-  const itemIDs = tagItems.map(t => t.itemID);
-
-  if (itemIDs.length === 0) return [];
-
-  // STEP 2: Fetch actual items
-  const itemRes = await axios.get(
-    `${API_BASE}/API/Account/${ACCOUNT_ID}/Item.json`,
-    {
-      headers: authHeader(),
-      params: {
-        itemID: itemIDs.join(",")
-      }
-    }
-  );
-
-  if (!itemRes.data || !itemRes.data.Item) {
-    return [];
-  }
-
-  return Array.isArray(itemRes.data.Item)
-    ? itemRes.data.Item
-    : [itemRes.data.Item];
+  return walmartItems;
 }
 
 /* =========================
