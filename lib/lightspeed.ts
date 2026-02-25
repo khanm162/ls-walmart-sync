@@ -185,6 +185,62 @@ async function getWalmartTaggedItems(limitPerPage = 100) {
 }
 
 /* =========================
+   SYNC WALMART PRODUCTS
+========================= */
+
+async function syncWalmartProducts(limitPerPage = 100) {
+  await ensureValidToken();
+
+  let nextUrl =
+    `${API_BASE}/Account/${ACCOUNT_ID}/Item.json` +
+    `?load_relations=["Tags"]&limit=${limitPerPage}`;
+
+  let walmartItems = [];
+  let pageCount = 0;
+
+  while (nextUrl) {
+    console.log("Fetching page:", pageCount + 1);
+
+    const res = await axios.get(nextUrl, {
+      headers: authHeader(),
+    });
+
+    const data = res.data;
+    const items = data.Item || [];
+    const normalized = Array.isArray(items) ? items : [items];
+
+    for (const item of normalized) {
+      if (!item.Tags || !item.Tags.tag) continue;
+
+      const tags = item.Tags.tag;
+
+      if (
+        (Array.isArray(tags) && tags.includes("walmart")) ||
+        tags === "walmart"
+      ) {
+        walmartItems.push(item);
+      }
+    }
+
+    nextUrl = data["@attributes"]?.next || null;
+    pageCount++;
+  }
+
+  console.log("Sync complete. Found:", walmartItems.length);
+
+  // 🔥 STORE IN REDIS CACHE
+  await redis.set(
+    "walmart_products_cache",
+    JSON.stringify(walmartItems)
+  );
+
+  return {
+    totalPagesScanned: pageCount,
+    totalWalmartProducts: walmartItems.length,
+  };
+}
+
+/* =========================
    EXPORTS
 ========================= */
 
@@ -192,5 +248,6 @@ module.exports = {
   exchangeCodeForToken,
   testLightspeedConnection,
   getItems,
-  getWalmartTaggedItems
+  getWalmartTaggedItems,
+  syncWalmartProducts
 };
