@@ -101,6 +101,25 @@ export async function testLightspeedConnection() {
   }
 }
 
+export async function getItems(limit = 50) {
+  if (!(await hasValidToken())) {
+    await refreshAccessToken();
+  }
+
+  const res = await axios.get(
+    `${API_BASE}/API/Account/${ACCOUNT_ID}/Item.json`,
+    {
+      headers: authHeader(),
+      params: {
+        load_relations: ["ItemShops"],
+        limit
+      }
+    }
+  );
+
+  return res.data.Item || [];
+}
+
   const res = await axios.get(
     `${API_BASE}/API/Account/${ACCOUNT_ID}.json`,
     { headers: authHeader() }
