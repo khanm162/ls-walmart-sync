@@ -147,28 +147,48 @@ async function getItems(offset = 0, limit = 50) {
    SYNC WALMART PRODUCTS
 ========================= */
 
-async function syncWalmartProducts(limitPerPage = 100) {
+async function syncWalmartProducts(limitPerPage = 250) {
   await ensureValidToken();
 
-  let nextUrl =
-    `${API_BASE}/Account/${ACCOUNT_ID}/Item.json` +
-    `?search=tag:walmart&load_relations=["ItemShops"]&limit=${limitPerPage}`;
-
+  let offset = 0;
   let walmartItems = [];
   let pageCount = 0;
+  let keepFetching = true;
 
-  while (nextUrl) {
-    console.log("Fetching page:", pageCount + 1);
+  while (keepFetching) {
+    console.log("Fetching offset:", offset);
 
-    const res = await axios.get(nextUrl, {
-      headers: authHeader(),
-    });
+    const res = await axios.get(
+      `${API_BASE}/Account/${ACCOUNT_ID}/Item.json`,
+      {
+        headers: authHeader(),
+        params: {
+          offset,
+          limit: limitPerPage,
+          load_relations: '["Tags","ItemShops"]',
+        },
+      }
+    );
 
-    const data = res.data;
-    const items = data.Item || [];
+    const items = res.data.Item || [];
+
+    if (!items || items.length === 0) {
+      keepFetching = false;
+      break;
+    }
+
     const normalized = Array.isArray(items) ? items : [items];
 
     for (const item of normalized) {
+      if (!item.Tags?.tag) continue;
+
+      const tags = item.Tags.tag;
+      const hasWalmartTag =
+        (Array.isArray(tags) && tags.includes("walmart")) ||
+        tags === "walmart";
+
+      if (!hasWalmartTag) continue;
+
       const shopifyPrice =
         item.Prices?.ItemPrice?.find(
           (p) => p.useTypeID === "10"
@@ -199,8 +219,11 @@ async function syncWalmartProducts(limitPerPage = 100) {
       });
     }
 
-    nextUrl = data["@attributes"]?.next || null;
+    offset += limitPerPage;
     pageCount++;
+
+    // 🚨 Safety stop (avoid Vercel timeout)
+    if (pageCount > 50) break;
   }
 
   await redis.set(
