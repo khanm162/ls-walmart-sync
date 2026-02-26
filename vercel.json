@@ -1,6 +1,6 @@
 {
   "functions": {
-    "api/sync-walmart-products.ts": {
+    "api/*": {
       "maxDuration": 900
     }
   }
