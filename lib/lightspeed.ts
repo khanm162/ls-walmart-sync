@@ -147,53 +147,45 @@ async function getItems(offset = 0, limit = 50) {
    SYNC WALMART PRODUCTS
 ========================= */
 
-async function syncWalmartProducts(limitPerPage = 250) {
+async function syncWalmartProducts(limitPerPage = 100) {
   await ensureValidToken();
 
-  let offset = 0;
+  let nextUrl =
+    `${API_BASE}/Account/${ACCOUNT_ID}/Item.json` +
+    `?load_relations=["Tags","ItemShops"]&limit=${limitPerPage}`;
+
   let walmartItems = [];
   let pageCount = 0;
-  let keepFetching = true;
 
-  while (keepFetching) {
-    console.log("Fetching offset:", offset);
+  while (nextUrl) {
+    console.log("Fetching page:", pageCount + 1);
 
-    const res = await axios.get(
-      `${API_BASE}/Account/${ACCOUNT_ID}/Item.json`,
-      {
-        headers: authHeader(),
-        params: {
-          offset,
-          limit: limitPerPage,
-          load_relations: '["Tags","ItemShops"]',
-        },
-      }
-    );
+    const res = await axios.get(nextUrl, {
+      headers: authHeader(),
+    });
 
-    const items = res.data.Item || [];
-
-    if (!items || items.length === 0) {
-      keepFetching = false;
-      break;
-    }
-
+    const data = res.data;
+    const items = data.Item || [];
     const normalized = Array.isArray(items) ? items : [items];
 
     for (const item of normalized) {
-      if (!item.Tags?.tag) continue;
+      if (!item.Tags || !item.Tags.tag) continue;
 
       const tags = item.Tags.tag;
+
       const hasWalmartTag =
         (Array.isArray(tags) && tags.includes("walmart")) ||
         tags === "walmart";
 
       if (!hasWalmartTag) continue;
 
+      // ✅ Extract Shopify price (useTypeID 10)
       const shopifyPrice =
         item.Prices?.ItemPrice?.find(
           (p) => p.useTypeID === "10"
         )?.amount || null;
 
+      // ✅ Extract inventory from shopID 3
       let inventory = 0;
 
       if (item.ItemShops?.ItemShop) {
@@ -208,6 +200,7 @@ async function syncWalmartProducts(limitPerPage = 250) {
         inventory = primoShop?.qoh || 0;
       }
 
+      // ✅ Store CLEAN optimized object
       walmartItems.push({
         itemID: item.itemID,
         sku: item.systemSku,
@@ -219,13 +212,16 @@ async function syncWalmartProducts(limitPerPage = 250) {
       });
     }
 
-    offset += limitPerPage;
+    nextUrl = data["@attributes"]?.next || null;
     pageCount++;
-
-    // 🚨 Safety stop (avoid Vercel timeout)
-    if (pageCount > 50) break;
   }
 
+  console.log("Sync complete. Found:", walmartItems.length);
+  
+  console.log("Storing optimized structure...");
+console.log(JSON.stringify(walmartItems[0], null, 2));
+
+  
   await redis.set(
     "walmart_products_cache",
     JSON.stringify(walmartItems)
