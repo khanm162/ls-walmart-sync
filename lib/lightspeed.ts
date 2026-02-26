@@ -217,7 +217,11 @@ async function syncWalmartProducts(limitPerPage = 100) {
   }
 
   console.log("Sync complete. Found:", walmartItems.length);
+  
+  console.log("Storing optimized structure...");
+console.log(JSON.stringify(walmartItems[0], null, 2));
 
+  
   await redis.set(
     "walmart_products_cache",
     JSON.stringify(walmartItems)
