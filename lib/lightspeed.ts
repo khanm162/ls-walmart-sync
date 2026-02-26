@@ -152,7 +152,7 @@ async function syncWalmartProducts(limitPerPage = 100) {
 
   let nextUrl =
     `${API_BASE}/Account/${ACCOUNT_ID}/Item.json` +
-    `?load_relations=["Tags","ItemShops"]&limit=${limitPerPage}`;
+    `?search=tag:walmart&load_relations=["ItemShops"]&limit=${limitPerPage}`;
 
   let walmartItems = [];
   let pageCount = 0;
@@ -169,23 +169,11 @@ async function syncWalmartProducts(limitPerPage = 100) {
     const normalized = Array.isArray(items) ? items : [items];
 
     for (const item of normalized) {
-      if (!item.Tags || !item.Tags.tag) continue;
-
-      const tags = item.Tags.tag;
-
-      const hasWalmartTag =
-        (Array.isArray(tags) && tags.includes("walmart")) ||
-        tags === "walmart";
-
-      if (!hasWalmartTag) continue;
-
-      // ✅ Extract Shopify price (useTypeID 10)
       const shopifyPrice =
         item.Prices?.ItemPrice?.find(
           (p) => p.useTypeID === "10"
         )?.amount || null;
 
-      // ✅ Extract inventory from shopID 3
       let inventory = 0;
 
       if (item.ItemShops?.ItemShop) {
@@ -200,7 +188,6 @@ async function syncWalmartProducts(limitPerPage = 100) {
         inventory = primoShop?.qoh || 0;
       }
 
-      // ✅ Store CLEAN optimized object
       walmartItems.push({
         itemID: item.itemID,
         sku: item.systemSku,
@@ -216,12 +203,6 @@ async function syncWalmartProducts(limitPerPage = 100) {
     pageCount++;
   }
 
-  console.log("Sync complete. Found:", walmartItems.length);
-  
-  console.log("Storing optimized structure...");
-console.log(JSON.stringify(walmartItems[0], null, 2));
-
-  
   await redis.set(
     "walmart_products_cache",
     JSON.stringify(walmartItems)
